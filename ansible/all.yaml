@@ -1,46 +1,27 @@
-- name: k8s-master
+- name: master-k8s-local
   hosts: 192.168.56.32
   gather_facts: true
   become: yes
   become_user: root
+  vars:
+    ansible_ssh_private_key_file: /home/vagrant/.ssh/master_private_key
 
-  tasks:
-  - name: Set a hostname
-    ansible.builtin.hostname:
-      name: k8s-master
-
-- name: worker1
+- name: worker1-k8s-local
   hosts: 192.168.56.33
   gather_facts: true
   become: yes
   become_user: root
+  vars:
+    ansible_ssh_private_key_file: /home/vagrant/.ssh/worker1_private_key
 
-  tasks:
-  - name: Set a hostname
-    ansible.builtin.hostname:
-      name: worker1
-
-- name: all
-  hosts: all
+- hosts: 192.168.56.32, 192.168.56.33
+  become: true
   gather_facts: true
-  become: yes
-  become_user: root
- 
   handlers:
-  - name: docker status
-    service: name=docker state=started
+  tasks:
 
-  # tasks:
-  # - name: Create proxy.conf file for APT
-  #   copy:
-  #     dest: "/etc/apt/apt.conf.d/proxy.conf"
-  #     content: |
-  #       Acquire::http::proxy "http://192.168.1.107:8080/";
-
-  # - name: Upgrade the OS (apt-get upgrade)
-  #   apt:
-  #     update_cache: yes
-  #     upgrade: full
+  - name: Update apt cache
+    command: sudo apt-get update
 
   - name: Install packages that allow apt to be used over HTTPS
     apt:
@@ -54,34 +35,16 @@
       - curl
       - gnupg-agent
       - software-properties-common
+      - gpg
 
-  - name: Add an apt signing key for Docker
-    apt_key:
-      url: https://download.docker.com/linux/ubuntu/gpg
-      state: present
-
-  - name: Add apt repository for stable version
-    apt_repository:
-      repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu xenial stable
-      state: present
-
-  - name: Install docker and its dependecies
+  - name: Install containerd and its dependecies
     apt: 
       name: "{{ packages }}"
       state: present
       update_cache: yes
     vars:
       packages:
-      - docker-ce
-      - docker-ce-cli
-      - containerd.io
-    notify:
-      - docker status
-
-  - name: Add vagrant user to docker group
-    user:
-      name: vagrant
-      group: docker
+      - containerd
 
   - name: Remove swapfile from /etc/fstab
     mount:
@@ -92,56 +55,104 @@
       - swap
       - none
 
+  - name: Comment out swap in /etc/fstab
+    replace:
+      path: /etc/fstab
+      regexp: '^([^#].*\sswap\s.*)$'
+      replace: '# \1'
+
   - name: Disable swap
     command: swapoff -a
     when: ansible_swaptotal_mb > 0
 
-  - name: Add an apt signing key for Kubernetes
-    apt_key:
-      url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+  - name: Create /etc/apt/keyrings folder
+    file:
+      path: /etc/apt/keyrings
+      state: directory
+      mode: '0755'
+
+  - name: Download Kubernetes apt key and save as gpg
+    ansible.builtin.shell: |
+      curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+    args:
+      creates: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+  - name: Add Kubernetes apt repository
+    ansible.builtin.apt_repository:
+      repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /"
+      filename: kubernetes
       state: present
 
-  - name: Adding apt repository for Kubernetes
-    apt_repository:
-      repo: deb https://apt.kubernetes.io/ kubernetes-xenial main
-      state: present
-      filename: kubernetes.list
+  - name: Update apt cache after adding Kubernetes repo
+    ansible.builtin.apt:
+      update_cache: yes
 
-  - name: Install Kubernetes binaries
-    apt: 
-      name: "{{ packages }}"
+  - name: Install kubelet, kubeadm, and kubectl
+    ansible.builtin.apt:
+      name:
+        - kubelet
+        - kubeadm
+        - kubectl
       state: present
       update_cache: yes
-    vars:
-      packages:
-        - kubelet=1.24.10-00 
-        - kubeadm=1.24.10-00  
-        - kubectl=1.24.10-00 
 
-  - name: "Add k8s-master in hosts"
+  - name: Hold kubelet, kubeadm, and kubectl at current version
+    ansible.builtin.shell: |
+      apt-mark hold kubelet kubeadm kubectl
+
+  - name: "Add master-k8s-local in hosts"
     lineinfile:
       path: /etc/hosts
-      line: "192.168.56.32 k8s-master"
+      line: "192.168.56.32 master-k8s-local"
       state: present
       backup: yes
 
-  - name: "Add worker1 in hosts"
+  - name: "Add worker1-k8s-local in hosts"
     lineinfile:
       path: /etc/hosts
-      line: "192.168.56.33 worker1"
+      line: "192.168.56.33 worker1-k8s-local"
       state: present
       backup: yes
 
-- name: k8s-master
+  - name: Enable and start kubelet service
+    ansible.builtin.systemd:
+      name: kubelet
+      enabled: yes
+      state: started
+
+  - name: Crea la directory di configurazione di Containerd
+    file:
+      path: /etc/containerd
+      state: directory
+      mode: '0755'
+
+  - name: Genera la configurazione predefinita di Containerd
+    command: containerd config default | sudo tee /etc/containerd/config.toml > /dev/null
+    args:
+      creates: /etc/containerd/config.toml
+
+  - name: Abilita SystemdCgroup in containerd
+    ansible.builtin.replace:
+      path: /etc/containerd/config.toml
+      regexp: 'SystemdCgroup = false'
+      replace: 'SystemdCgroup = true'
+
+  - name: Restart containerd
+    service:
+      name: containerd
+      daemon_reload: yes
+      state: restarted
+
+- name: master-k8s-local
   hosts: 192.168.56.32
-  gather_facts: false
+  gather_facts: true
   become: yes
   become_user: root
   tasks:
-  - name: Configure node ip
+  - name: Set kubelet extra args
     lineinfile:
       path: /etc/default/kubelet
-      line: KUBELET_EXTRA_ARGS=--node-ip=192.168.56.32
+      line: 'KUBELET_EXTRA_ARGS=--node-ip=192.168.56.32'
       create: yes
 
   - name: Restart kubelet
@@ -150,11 +161,6 @@
       daemon_reload: yes
       state: restarted
 
-  - name: Remove file /etc/containerd/config.toml
-    ansible.builtin.file:
-      path: /etc/containerd/config.toml
-      state: absent
-
   - name: Restart containerd
     service:
       name: containerd
@@ -162,7 +168,7 @@
       state: restarted
 
   - name: Initialize the Kubernetes cluster using kubeadm
-    command: kubeadm init --apiserver-advertise-address="192.168.56.32" --apiserver-cert-extra-sans="192.168.56.32"  --node-name k8s-master --pod-network-cidr=10.244.0.0/16 --ignore-preflight-errors=all
+    command: kubeadm init --apiserver-advertise-address="192.168.56.32" --apiserver-cert-extra-sans="192.168.56.32"  --node-name k8s-master-local --pod-network-cidr=10.244.0.0/16 --ignore-preflight-errors=all
 
   - name: Setup kubeconfig for vagrant user
     command: "{{ item }}"
@@ -171,9 +177,6 @@
      - cp -i /etc/kubernetes/admin.conf /home/vagrant/.kube/config
      - chown vagrant:vagrant /home/vagrant/.kube/config
 
-  # - name: Install Calico
-  #   become: false
-  #   command: kubectl apply -f https://docs.projectcalico.org/v3.21/manifests/calico.yaml
   - name: Install Flannel
     become: false
     command: kubectl apply -f kube-flannel.yaml
@@ -185,7 +188,7 @@
   - name: Copy join command to local file
     local_action: copy content="{{ join_command.stdout_lines[0] }}" dest="./join-command"
 
-- name: worker1
+- name: worker1-k8s-local
   hosts: 192.168.56.33
   gather_facts: false
   become: yes
@@ -195,18 +198,12 @@
     lineinfile:
       path: /etc/default/kubelet
       line: KUBELET_EXTRA_ARGS=--node-ip=192.168.56.33
-      create: yes
 
   - name: Restart kubelet
     service:
       name: kubelet
       daemon_reload: yes
       state: restarted
-
-  - name: Remove file /etc/containerd/config.toml
-    ansible.builtin.file:
-      path: /etc/containerd/config.toml
-      state: absent
 
   - name: Restart containerd
     service:
@@ -226,26 +223,3 @@
       - mkdir -p /home/vagrant/.kube
       - cp -i /etc/kubernetes/kubelet.conf /home/vagrant/.kube/config
       - chown vagrant:vagrant /home/vagrant/.kube/config
-
-# - name: k8s-master
-#   hosts: 192.168.56.32
-#   gather_facts: false
-#   become: yes
-#   become_user: root
-#   tasks:
-
-#   - name: Install OpenEBS
-#     become: false
-#     command: kubectl apply -f /home/vagrant/openebs-operator.yaml
-
-#   - name: Install MetalLB
-#     become: false
-#     command: kubectl apply -f metallb-native.yaml
-
-#   - name: Pause for 2 minutes to let metallb-native deploy
-#     ansible.builtin.pause:
-#       minutes: 2
-
-#   - name: Install MetalLB Resources
-#     become: false
-#     command: kubectl apply -f /home/vagrant/metallb.yaml
