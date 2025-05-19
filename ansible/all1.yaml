@@ -14,23 +14,14 @@
   vars:
     ansible_ssh_private_key_file: /home/vagrant/.ssh/worker1_private_key
 
-- hosts: all
+- hosts: 192.168.56.32, 192.168.56.33
   become: true
   gather_facts: true
   handlers:
-  - name: docker status
-    service: name=docker state=started
-  - name: update grub
-    command: update-grub
   tasks:
 
   - name: Update apt cache
     command: sudo apt-get update
-
-  # - name: Upgrade the OS (apt-get upgrade)
-  #   apt:
-  #     update_cache: yes
-  #     upgrade: full
 
   - name: Install packages that allow apt to be used over HTTPS
     apt:
@@ -46,33 +37,14 @@
       - software-properties-common
       - gpg
 
-  - name: Add an apt signing key for Docker
-    apt_key:
-      url: https://download.docker.com/linux/ubuntu/gpg
-      state: present
-
-  - name: Add apt repository for stable version
-    apt_repository:
-      repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu xenial stable
-      state: present
-
-  - name: Install docker and its dependecies
+  - name: Install containerd and its dependecies
     apt: 
       name: "{{ packages }}"
       state: present
       update_cache: yes
     vars:
       packages:
-      - docker-ce
-      - docker-ce-cli
-      - containerd.io
-    notify:
-      - docker status
-
-  - name: Add vagrant user to docker group
-    user:
-      name: vagrant
-      group: docker
+      - containerd
 
   - name: Remove swapfile from /etc/fstab
     mount:
@@ -82,6 +54,12 @@
     with_items:
       - swap
       - none
+
+  - name: Comment out swap in /etc/fstab
+    replace:
+      path: /etc/fstab
+      regexp: '^([^#].*\sswap\s.*)$'
+      replace: '# \1'
 
   - name: Disable swap
     command: swapoff -a
@@ -141,14 +119,29 @@
       name: kubelet
       enabled: yes
       state: started
-  
-  - name: Ensure cgroup v2 is enabled and systemd is used
-    lineinfile:
-      path: /etc/default/grub
-      regexp: '^GRUB_CMDLINE_LINUX='
-      line: 'GRUB_CMDLINE_LINUX="systemd.unified_cgroup_hierarchy=1 cgroup_enable=cpuset cgroup_enable=memory cgroup_memory=1"'
-    notify: update grub
 
+  - name: Crea la directory di configurazione di Containerd
+    file:
+      path: /etc/containerd
+      state: directory
+      mode: '0755'
+
+  - name: Genera la configurazione predefinita di Containerd
+    command: containerd config default | sudo tee /etc/containerd/config.toml > /dev/null
+    args:
+      creates: /etc/containerd/config.toml
+
+  - name: Abilita SystemdCgroup in containerd
+    ansible.builtin.replace:
+      path: /etc/containerd/config.toml
+      regexp: 'SystemdCgroup = false'
+      replace: 'SystemdCgroup = true'
+
+  - name: Restart containerd
+    service:
+      name: containerd
+      daemon_reload: yes
+      state: restarted
 
 - name: master-k8s-local
   hosts: 192.168.56.32
@@ -159,13 +152,8 @@
   - name: Set kubelet extra args
     lineinfile:
       path: /etc/default/kubelet
-      line: 'KUBELET_EXTRA_ARGS=--node-ip=192.168.56.32 --cgroup-driver=systemd'
+      line: 'KUBELET_EXTRA_ARGS=--node-ip=192.168.56.32'
       create: yes
-
-  - name: Remove file /etc/containerd/config.toml
-    ansible.builtin.file:
-      path: /etc/containerd/config.toml
-      state: absent
 
   - name: Restart kubelet
     service:
@@ -200,43 +188,38 @@
   - name: Copy join command to local file
     local_action: copy content="{{ join_command.stdout_lines[0] }}" dest="./join-command"
 
-# - name: worker1-k8s-local
-#   hosts: 192.168.56.33
-#   gather_facts: false
-#   become: yes
-#   become_user: root
-#   tasks:
-#   - name: Configure node ip
-#     lineinfile:
-#       path: /etc/default/kubelet
-#       line: KUBELET_EXTRA_ARGS=--node-ip=192.168.56.33
+- name: worker1-k8s-local
+  hosts: 192.168.56.33
+  gather_facts: false
+  become: yes
+  become_user: root
+  tasks:
+  - name: Configure node ip
+    lineinfile:
+      path: /etc/default/kubelet
+      line: KUBELET_EXTRA_ARGS=--node-ip=192.168.56.33
 
-#   - name: Restart kubelet
-#     service:
-#       name: kubelet
-#       daemon_reload: yes
-#       state: restarted
+  - name: Restart kubelet
+    service:
+      name: kubelet
+      daemon_reload: yes
+      state: restarted
 
-#   - name: Remove file /etc/containerd/config.toml
-#     ansible.builtin.file:
-#       path: /etc/containerd/config.toml
-#       state: absent
+  - name: Restart containerd
+    service:
+      name: containerd
+      daemon_reload: yes
+      state: restarted
 
-#   - name: Restart containerd
-#     service:
-#       name: containerd
-#       daemon_reload: yes
-#       state: restarted
+  - name: Copy the join command to server location
+    copy: src=join-command dest=/tmp/join-command.sh mode=0777
 
-#   - name: Copy the join command to server location
-#     copy: src=join-command dest=/tmp/join-command.sh mode=0777
+  - name: Join the node to cluster
+    command: sh /tmp/join-command.sh
 
-#   - name: Join the node to cluster
-#     command: sh /tmp/join-command.sh
-
-#   - name: Setup kubeconfig for vagrant user
-#     command: "{{ item }}"
-#     with_items:
-#       - mkdir -p /home/vagrant/.kube
-#       - cp -i /etc/kubernetes/kubelet.conf /home/vagrant/.kube/config
-#       - chown vagrant:vagrant /home/vagrant/.kube/config
+  - name: Setup kubeconfig for vagrant user
+    command: "{{ item }}"
+    with_items:
+      - mkdir -p /home/vagrant/.kube
+      - cp -i /etc/kubernetes/kubelet.conf /home/vagrant/.kube/config
+      - chown vagrant:vagrant /home/vagrant/.kube/config

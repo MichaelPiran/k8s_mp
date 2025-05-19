@@ -17,3 +17,10 @@ scp C:\Users\piran\Desktop\k8s_mp\worker1\.vagrant\machines\worker1_k8s_local\vi
 # run ansible
 cd ansible
 ansible-playbook -i hosts.ini all1.yaml
+
+
+# config.toml
+sudo containerd config default | sudo tee /etc/containerd/config.toml > /dev/null
+
+# copi kube-flannel.yaml
+scp /vagrant/kube-flannel.yml vagrant@192.168.56.32:/home/vagrant/kube-flannel.yaml
