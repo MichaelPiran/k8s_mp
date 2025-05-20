@@ -30,5 +30,8 @@ sudo containerd config default | sudo tee /etc/containerd/config.toml > /dev/nul
       [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
         SystemdCgroup = true
 
-# copi kube-flannel.yaml
-scp /vagrant/kube-flannel.yml vagrant@192.168.56.32:/home/vagrant/kube-flannel.yaml
+# copy kube-flannel.yaml
+scp /vagrant/kube-flannel.yaml vagrant@192.168.56.32:/home/vagrant/kube-flannel.yaml
+
+# copy openebs-values.yaml
+scp /vagrant/openebs-values.yaml vagrant@192.168.56.32:/home/vagrant/openebs-values.yaml.yaml
