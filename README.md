@@ -18,9 +18,17 @@ scp C:\Users\piran\Desktop\k8s_mp\worker1\.vagrant\machines\worker1_k8s_local\vi
 cd ansible
 ansible-playbook -i hosts.ini all1.yaml
 
-
 # config.toml
 sudo containerd config default | sudo tee /etc/containerd/config.toml > /dev/null
+
+[plugins."io.containerd.grpc.v1.cri"]
+  sandbox_image = "registry.k8s.io/pause:3.9"
+  [plugins."io.containerd.grpc.v1.cri".containerd]
+    snapshotter = "overlayfs"
+    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
+      runtime_type = "io.containerd.runc.v2"
+      [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+        SystemdCgroup = true
 
 # copi kube-flannel.yaml
 scp /vagrant/kube-flannel.yml vagrant@192.168.56.32:/home/vagrant/kube-flannel.yaml

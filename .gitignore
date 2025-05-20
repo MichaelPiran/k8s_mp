@@ -1,3 +1,5 @@
 ansible/.vagrant/*
 master/.vagrant/*
 worker1/.vagrant/*
+ansible/.kube
+ansible/join-command

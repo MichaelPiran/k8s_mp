@@ -1,0 +1,1 @@
+scp vagrant@192.168.56.32:/home/vagrant/.kube/config /c/Users/piran/Desktop/k8s_mp/ansible/.kube/config

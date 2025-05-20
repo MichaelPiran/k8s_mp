@@ -143,6 +143,39 @@
       daemon_reload: yes
       state: restarted
 
+  - name: Ensure br_netfilter module is loaded
+    become: true
+    modprobe:
+      name: br_netfilter
+      state: present
+
+  - name: Rendi persistente il caricamento di br_netfilter
+    copy:
+      dest: /etc/modules-load.d/k8s.conf
+      content: |
+        br_netfilter
+      owner: root
+      group: root
+      mode: '0644'
+
+  - name: Ensure bridge-nf-call-iptables is set to 1
+    become: true
+    sysctl:
+      name: net.bridge.bridge-nf-call-iptables
+      value: 1
+      state: present
+      sysctl_set: yes
+      reload: yes
+
+  - name: Ensure net.ipv4.ip_forward is set to 1
+    become: true
+    sysctl:
+      name: net.ipv4.ip_forward
+      value: 1
+      state: present
+      sysctl_set: yes
+      reload: yes
+
 - name: master-k8s-local
   hosts: 192.168.56.32
   gather_facts: true
