@@ -1,0 +1,38 @@
+## Run VM
+# in power shell as admin
+vagrant up --provider hyperv
+
+## Set VM network
+# create internal switch
+New-VMSwitch -SwitchName "SwitchName" -SwitchType Internal
+
+# get InterfaceIndex
+Get-NetAdapter
+
+# configure gateway NAT
+New-NetIPAddress -IPAddress 192.168.0.1 -PrefixLength 24 -InterfaceIndex 96 
+
+# configure rete NAT
+New-NetNat -Name VMNATnetwork -InternalIPInterfaceAddressPrefix 192.168.0.0/24
+
+# connect vm to internal switch
+
+# set static ip
+
+sudo nano /etc/netplan/00-installer-config.yaml
+
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    eth0:
+      dhcp4: no
+      addresses:
+        - 192.168.100.2/24
+      gateway4: 192.168.100.1
+      nameservers:
+        addresses:
+          - 8.8.8.8
+          - 1.1.1.1
+
+sudo netplan apply

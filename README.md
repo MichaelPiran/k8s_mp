@@ -9,9 +9,9 @@ cd ../worker1
 vagrant up
 
 ## copy ssh key to .ssh ansible
-scp .\k8s_mp\master\.vagrant\machines\master_k8s_local\virtualbox\private_key vagrant@192.168.56.21:/home/vagrant/.ssh/master_private_key
+scp .\k8s_mp\master\.vagrant\machines\master_k8s_local\virtualbox\private_key vagrant@192.168.56.32:/home/vagrant/.ssh/master_private_key
 
-scp .\k8s_mp\worker1\.vagrant\machines\worker1_k8s_local\virtualbox\private_key vagrant@192.168.56.21:/home/vagrant/.ssh/worker1_private_key
+scp .\k8s_mp\worker1\.vagrant\machines\worker1_k8s_local\virtualbox\private_key vagrant@192.168.56.33:/home/vagrant/.ssh/worker1_private_key
 
 <!-- # config.toml
 sudo containerd config default | sudo tee /etc/containerd/config.toml > /dev/null

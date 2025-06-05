@@ -1,5 +1,10 @@
 ansible/.vagrant/*
 master/.vagrant/*
 worker1/.vagrant/*
+ansible_hyper_v/.vagrant/*
+master_hyper_v/.vagrant/*
+worker1_hyper_v/.vagrant/*
 ansible/.kube
 ansible/join-command
+hyper_v/key/*
+cluster/trino-values-1.yaml
